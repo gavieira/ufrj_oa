@@ -1,6 +1,8 @@
 library(httr2)
 library(jsonlite)
 library(tidyverse)
+library(arrow)
+source("config.R")
 
 ##### Funcao para extrair dados da openalex via api #####
 
@@ -50,10 +52,7 @@ extrair_ufrj_por_ano <- function(id_institucional, ano, email_contato) {
 
 ##### Baixando e salvando os dados #####
  
-# 1. Definição dos parâmetros de captura
-anos_para_baixar <- 1991:2025  # Defina o intervalo aqui
-dir_dados <- "dados"
-dir_dados_raw   <- file.path(dir_dados, "raw")
+# 1. Definição dos parâmetros de captura importados de config.R no topo do script
 
 # Criar a pasta se não existir
 if (!dir.exists(dir_dados_raw)) dir.create(dir_dados_raw, recursive = TRUE)
@@ -125,8 +124,7 @@ df_ufrj_final <- df_ufrj_consolidado %>%
         unique()
     }) 
   ) %>%
-  # 1. Renomear as colunas de Open Access
-  # A sintaxe é: novo_nome = nome_antigo
+  # 1. Renomear as colunas de Open Access # A sintaxe é: novo_nome = nome_antigo
   rename(
     is_oa = open_access.is_oa,
     oa_status = open_access.oa_status
@@ -135,6 +133,69 @@ df_ufrj_final <- df_ufrj_consolidado %>%
   select(
     -starts_with("open_access."), # Remove todos os outros campos (oa_url, etc)
     -topics                        # Remove a coluna complexa original
-  ) 
+  )  %>%
+  # 3. Filtrar apenas os 'articles' e 'reviews'
+  filter(
+    type %in% c('article', 'review')
+  )
 
-saveRDS(df_ufrj_final, file = file.path(dir_dados, "ufrj_oplx.rds"), compress = "xz")
+saveRDS(df_ufrj_final, file = dados_processados, compress = "xz")
+
+
+######## Geracao arquivos do zenodo (csv e parquet) ########
+
+
+#### CSV
+
+# Versão "segura" da função toJSON que retorna NA se falhar
+safe_json <- possibly(function(x) {
+  if (is.null(x) || (is.logical(x) && all(is.na(x))) || !is.data.frame(x) || nrow(x) == 0) {
+    return(NA_character_)
+  }
+  return(as.character(toJSON(x)))
+}, otherwise = NA_character_)
+
+ufrj_csv_completo <- ufrj_data %>%
+  mutate(
+    # Agora usamos a função segura para o histórico
+    counts_by_year = map_chr(counts_by_year, safe_json),
+    
+    # Tratamento para domínios (simplificado e seguro)
+    dominios_nomes = map_chr(dominios_nomes, ~ {
+      # Verificamos se é uma lista válida de strings
+      val <- unlist(.x)
+      if (is.null(val) || all(is.na(val)) || length(val) == 0) {
+        return(NA_character_)
+      }
+      paste(unique(trimws(as.character(val))), collapse = "; ")
+    })
+  )
+
+# 2. Exportação
+
+write.table(ufrj_csv_completo, dados_processados_csv, 
+            sep = ";", 
+            dec = ",", 
+            row.names = FALSE, 
+            quote = TRUE,
+            qmethod = "double",
+            fileEncoding = "UTF-8")
+
+
+#### PARQUET
+
+# 1. Normalizando a estrutura para o Arrow
+ufrj_data_parquet <- ufrj_data %>%
+  mutate(
+    counts_by_year = map(counts_by_year, ~ {
+      # Se for nulo ou não for um data.frame, cria um df vazio com as colunas corretas
+      if (is.null(.x) || !is.data.frame(.x) || nrow(.x) == 0) {
+        return(data.frame(year = integer(), cited_by_count = integer()))
+      }
+      # Garante que as colunas sejam exatamente o que o Arrow espera
+      as.data.frame(.x) %>% select(year, cited_by_count)
+    })
+  )
+
+# 2. Agora o write_parquet deve funcionar perfeitamente
+write_parquet(ufrj_data_parquet, dados_processados_parquet)
