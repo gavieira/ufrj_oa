@@ -58,42 +58,87 @@ df_elite_ext <- bind_rows(
 )
 
 # --- 2. P1: DISTRIBUIÇÃO DE FWCI (BOXPLOT) ---
-p1_distribuicao <- ggplot(df_p2, aes(x = ano_fator, y = fwci)) +
-  geom_jitter(aes(color = status_label), alpha = 0.15, size = 0.6, 
+df_p2 <- ufrj_data %>%
+  # Mantemos apenas registros com FWCI e Status de OA definidos
+  filter(!is.na(fwci), !is.na(is_oa)) %>%
+  
+  # Filtro de tipo para manter a consistência acadêmica
+  filter(type %in% c("article", "review")) %>% 
+  
+  mutate(
+    # Criamos os labels para a legenda
+    status_label = ifelse(is_oa, "Acesso Aberto", "Acesso Fechado"),
+    
+    # O boxplot no eixo X precisa que o ano seja um 'Fator' (categórico)
+    ano_fator = factor(publication_year)
+  )
+
+
+# --- P1: DISTRIBUIÇÃO COM MEDIANA EM VERMELHO E VALOR NUMÉRICO ---
+p1_distribuicao <- ggplot(df_p2, 
+                          aes(x = publication_year, # Usamos o ano numérico aqui
+                              y = fwci, 
+                              fill = status_label, 
+                              color = status_label,
+                              group = interaction(publication_year, status_label))) + # Agrupa por ano E status
+  
+  # 1. Pontinhos (Jitter)
+  geom_jitter(alpha = 0.15, size = 0.6, 
               position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75)) +
-  geom_boxplot(aes(fill = status_label), outlier.shape = NA, color = "black", 
-               linewidth = 0.4, alpha = 0.6, position = position_dodge(width = 0.75)) +
-  geom_hline(aes(yintercept = 1, linetype = "Média Mundial"), color = "red", linewidth = 0.8) +
-  scale_y_log10(trans = "pseudo_log", breaks = c(0.1, 1, 10, 100, 1000),
+  
+  # 2. Boxplot
+  geom_boxplot(outlier.shape = NA, 
+               color = "black", 
+               linewidth = 0.4, 
+               alpha = 0.6, 
+               width = 0.7, # Define uma largura fixa para não ocupar o gráfico todo
+               position = position_dodge(width = 0.75)) + 
+  
+  # 3. Linhas das Medianas em Vermelho
+  stat_summary(geom = "crossbar", 
+               fun = median, fun.max = median, fun.min = median,
+               width = 0.7, 
+               color = "red", 
+               linewidth = 0.7,
+               position = position_dodge(width = 0.75),
+               show.legend = FALSE) +
+  
+  # 4. Labels com Valores (Individuais e Alinhados)
+  stat_summary(geom = "label", 
+               fun = median, 
+               aes(label = sprintf("%.2f", after_stat(y))), 
+               position = position_dodge(width = 0.75),
+               angle = 90,
+               vjust = 0.5,
+               hjust = -0.2, 
+               size = 3, 
+               color = "white",
+               fill = "red",
+               fontface = "bold",
+               label.padding = unit(0.08, "lines"),
+               show.legend = FALSE) +
+  
+  # Ajuste das escalas para manter o visual anterior
+  scale_y_log10(trans = "pseudo_log", 
+                breaks = c(0.1, 1, 10, 100, 1000),
                 labels = c("0.1", "1", "10", "100", "1000")) +
+  
+  # Forçamos o eixo X a mostrar os anos corretamente
+  scale_x_continuous(breaks = seq(2001, 2025, by = 2)) +
+  
   scale_fill_manual(values = c("Acesso Aberto" = "#56B4E9", "Acesso Fechado" = "#D55E00")) +
   scale_color_manual(values = c("Acesso Aberto" = "#0072B2", "Acesso Fechado" = "#B04100")) +
-  scale_linetype_manual(name = NULL, values = "dashed") +
+  
   coord_cartesian(ylim = c(0.1, 100)) +
-  labs(title = "A) Distribuição de artigos em cada ano por impacto (Log FWCI)",
-       #subtitle = "UFRJ (2001-2025) | Escala Log",
+  
+  labs(title = "A)",
        y = "FWCI (Log)", x = NULL) +
+  
   theme_minimal(base_size = 16) + 
   theme(legend.position = "none", 
-        axis.text.x = element_blank(), # Esconde anos para não repetir com o de baixo
+        axis.text.x = element_blank(),
         panel.grid.minor = element_blank(),
-        # Tamanho do título do gráfico
-        plot.title = element_text(size = 20, face = "bold"),
-        
-        # Tamanho do subtítulo
-        plot.subtitle = element_text(size = 14),
-        
-        # Tamanho dos títulos dos eixos (X e Y)
-        axis.title = element_text(size = 14),
-        
-        # Tamanho dos números nos eixos
-        axis.text = element_text(size = 12),
-        
-        # Tamanho do texto da legenda
-        legend.text = element_text(size = 12),
-        legend.title = element_text(size = 13, face = "bold") 
-        
-        )
+        plot.title = element_text(size = 20, face = "bold"))
 
 # --- 3. P2: COMPOSIÇÃO DOS ARTIGOS MAIS CITADOS (QUARTIL 1) ---
 teto_maximo <- df_elite_base %>% 
@@ -108,10 +153,6 @@ p2_elite <- ggplot(df_elite_ext, aes(x = publication_year, y = n, fill = status_
             aes(label = paste0(round(perc_no_topo, 0), "%")),
             position = position_stack(vjust = 0.5), 
             size = 3.2, color = "white", fontface = "bold") +
-  # --- ADICIONANDO LINHA INVISÍVEL PARA A LEGENDA ---
-  # Usamos um y que não aparece no gráfico (ex: -100) para ela só servir para a legenda
-  geom_hline(aes(yintercept = -100, linetype = "Média Mundial"), color = "red", linewidth = 0.8) +
-  # Cortamos a visualização para ignorar o -100
   # ylim(0, max) garante que o gráfico comece no zero e ignore a linha lá embaixo
   coord_cartesian(ylim = c(0, teto_maximo * 1.1)) +
   scale_x_continuous(breaks = seq(ano_min, ano_max, by = 2),
@@ -120,7 +161,7 @@ p2_elite <- ggplot(df_elite_ext, aes(x = publication_year, y = n, fill = status_
   scale_fill_manual(values = c("Acesso Aberto" = "#56B4E9", "Acesso Fechado" = "#D55E00")) +
   # Define o tipo de linha e o nome na legenda
   scale_linetype_manual(name = NULL, values = "dashed") +
-  labs(title = "B) Composição de artigos com maior impacto por ano (Top 25% FWCI)",
+  labs(title = "B)",
        #subtitle = "Proporção de documentos com maior impacto por ano",
        y = "Nº de Documentos", x = "Ano de Publicação", fill = "Status") +
   theme_minimal(16) + 
