@@ -2,10 +2,46 @@ source('config.R')
 library(tidyverse)
 library(patchwork)
 library(gt)
+library(scales)
 
 #Importando dados
 ufrj_data = readRDS(dados_processados)
 
+head(ufrj_data)
+
+### Totais de artigos (aberto/fechado) ###
+
+ufrj_data %>%
+  # 1. Transforma o TRUE/FALSE e calcula totais e porcentagens
+  mutate(tipo_acesso = if_else(is_oa, "Acesso Aberto", "Acesso Fechado")) %>% 
+  count(tipo_acesso) %>% 
+  mutate(
+    pct = n / sum(n),
+    label_completa = paste0(n, "\n(", percent(pct, accuracy = 0.1), ")")
+  ) %>% 
+  
+  # 2. Geramos o gráfico
+  ggplot(aes(x = tipo_acesso, y = n, fill = tipo_acesso)) +
+  geom_col(show.legend = FALSE) +
+  # geom_text modificado: centralizado, maior e com cor contrastante
+  geom_text(
+    aes(label = label_completa), 
+    position = position_stack(vjust = 0.5), # Centraliza dentro da barra
+    size = 6,                              # Aumenta o tamanho da fonte
+    color = "white",                       # Cor branca para ler melhor sobre o preenchimento
+    fontface = "bold"
+  ) +
+  # Customização de cores (usando fill em vez de color)
+  scale_fill_manual(values = c("Acesso Aberto" = "#56B4E9", "Acesso Fechado" = "#D55E00")) +
+  labs(
+    x = "Status de Acesso",
+    y = "Total de Documentos"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.title.x = element_text(size = 18), # Tamanho do nome do eixo X
+    axis.text.x = element_text(size = 16)                # Tamanho das legendas das categorias
+  )
 
 ### Producao de artigos (aberto/fechado) ####
 
