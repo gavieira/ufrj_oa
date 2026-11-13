@@ -72,3 +72,23 @@ print(ajuste)
 if (!dir.exists("resultados")) dir.create("resultados")
 write_csv(tabela_modelos, "resultados/tabela_modelos.csv")
 write_csv(ajuste, "resultados/ajuste_modelos.csv")
+
+#### Checagens de robustez ####
+
+# R1: Modelo B apenas com artigos em ingles (idioma constante)
+m_b_en <- lm(log_fwci ~ oa_status + colaboracao + dominio + type + factor(publication_year),
+             data = filter(df_modelo, ingles == 1))
+
+# R2: Modelo B apenas com artigos em portugues
+m_b_pt <- lm(log_fwci ~ oa_status + colaboracao + dominio + type + factor(publication_year),
+             data = filter(df_modelo, language %in% "pt"))
+
+robustez <- bind_rows(
+  coef_robusto(m_b_en, "B_ingles"),
+  coef_robusto(m_b_pt, "B_portugues")
+) %>%
+  filter(str_detect(termo, "oa_status")) %>%
+  mutate(n = if_else(modelo == "B_ingles", nobs(m_b_en), nobs(m_b_pt)))
+
+print(robustez, n = Inf)
+write_csv(robustez, "resultados/robustez_idioma.csv")
