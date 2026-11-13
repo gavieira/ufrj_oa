@@ -1,8 +1,11 @@
 source('config.R')
 library(tidyverse)
+library(sandwich)
+library(lmtest)
 
-# Modelos exploratorios: relacao entre status de acesso aberto e impacto (FWCI),
-# controlando por colaboracao, dominio, tipo de documento, idioma e ano.
+# Modelos: relacao entre rota de acesso aberto e impacto (FWCI),
+# com e sem controles de idioma, colaboracao, dominio, tipo de documento e ano.
+# Erros-padrao robustos a heteroscedasticidade (HC1).
 
 ufrj_data <- readRDS(dados_processados)
 
@@ -26,23 +29,46 @@ df_modelo <- ufrj_data %>%
   ) %>%
   filter(!is.na(dominio))
 
-formula_controles <- ~ oa_status + colaboracao + dominio + type + ingles + factor(publication_year)
+controles <- "oa_status + colaboracao + dominio + type + ingles + factor(publication_year)"
 
-# 1. Sem controles (apenas ano): efeito "bruto" do status de acesso
-m_bruto <- lm(log_fwci ~ oa_status + factor(publication_year), data = df_modelo)
+# Modelo A: apenas rota de acesso e ano (associacao "bruta")
+m_a <- lm(log_fwci ~ oa_status + factor(publication_year), data = df_modelo)
 
-# 2. Com controles: log(1 + FWCI)
-m_log <- lm(update(formula_controles, log_fwci ~ .), data = df_modelo)
+# Modelo B: com controles, log(1 + FWCI)
+m_b <- lm(as.formula(paste("log_fwci ~", controles)), data = df_modelo)
 
-# 3. Com controles: probabilidade de FWCI = 0 (logit)
-m_zero <- glm(update(formula_controles, fwci_zero ~ .), data = df_modelo, family = binomial)
+# Modelo C: com controles, probabilidade de FWCI = 0 (logit)
+m_c <- glm(as.formula(paste("fwci_zero ~", controles)), data = df_modelo, family = binomial)
 
-extrair <- function(m) {
-  broom_like <- summary(m)$coefficients
-  as_tibble(broom_like, rownames = "termo") %>%
-    filter(str_detect(termo, "oa_status|colaboracao|ingles|type"))
+# Coeficientes com erros-padrao robustos (sem os efeitos fixos de ano)
+coef_robusto <- function(modelo, nome) {
+  ct <- coeftest(modelo, vcov. = vcovHC(modelo, type = "HC1"))
+  tibble(
+    modelo = nome,
+    termo = rownames(ct),
+    estimativa = ct[, 1],
+    erro_padrao = ct[, 2],
+    p_valor = ct[, 4]
+  ) %>%
+    filter(!str_detect(termo, "publication_year|Intercept"))
 }
 
-list(bruto = m_bruto, log_fwci = m_log, fwci_zero = m_zero) %>%
-  map(extrair) %>%
-  print()
+tabela_modelos <- bind_rows(
+  coef_robusto(m_a, "A"),
+  coef_robusto(m_b, "B"),
+  coef_robusto(m_c, "C")
+)
+
+ajuste <- tibble(
+  modelo = c("A", "B", "C"),
+  n = c(nobs(m_a), nobs(m_b), nobs(m_c)),
+  r2_ajustado = c(summary(m_a)$adj.r.squared, summary(m_b)$adj.r.squared, NA),
+  pseudo_r2_mcfadden = c(NA, NA, 1 - m_c$deviance / m_c$null.deviance)
+)
+
+print(tabela_modelos, n = Inf)
+print(ajuste)
+
+if (!dir.exists("resultados")) dir.create("resultados")
+write_csv(tabela_modelos, "resultados/tabela_modelos.csv")
+write_csv(ajuste, "resultados/ajuste_modelos.csv")
