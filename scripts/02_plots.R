@@ -545,14 +545,24 @@ df_investigacao %>%
 
 ### Analisando documentos com zero citacoes ######
 
+# Proporcao (e contagem absoluta) de documentos com FWCI = 0 por ano e tipo de acesso
+analise_fwci_plot <- ufrj_data %>%
+  filter(!is.na(fwci), !is.na(is_oa)) %>%
+  mutate(is_oa = if_else(is_oa, "Acesso Aberto", "Acesso Fechado")) %>%
+  group_by(publication_year, is_oa) %>%
+  summarise(
+    total_docs = n(),
+    docs_zero_fwci = sum(fwci == 0),
+    perc_zero_fwci = docs_zero_fwci / total_docs,
+    .groups = "drop"
+  )
 
-# Usando o seu dataframe analise_fwci_plot
 plot_perc_rotulado <- ggplot(analise_fwci_plot, 
                              aes(x = publication_year, 
                                  y = perc_zero_fwci, 
                                  color = is_oa, 
                                  group = is_oa)) +
-  geom_line(size = 1.2) +
+  geom_line(linewidth = 1.2) +
   geom_point(size = 3) +
   
   # ADICIONANDO OS RÓTULOS DE TEXTO
@@ -567,7 +577,7 @@ plot_perc_rotulado <- ggplot(analise_fwci_plot,
     labels = scales::percent_format(accuracy = 1),
     expand = expansion(mult = c(0.1, 0.2)) # Dá um espaço extra no topo para o texto não cortar
   ) + 
-  scale_color_manual(values = c("Acesso Aberto" = "#00ba38", "Fechado" = "#f8766d")) +
+  scale_color_manual(values = c("Acesso Aberto" = "#56B4E9", "Acesso Fechado" = "#D55E00")) +
   labs(
     title = "Evolução da Proporção de Documentos da UFRJ com FWCI = 0",
     subtitle = "Os números sobre os pontos indicam a contagem absoluta de artigos com zero citações",
