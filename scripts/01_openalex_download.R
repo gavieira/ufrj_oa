@@ -144,6 +144,9 @@ saveRDS(df_ufrj_final, file = dados_processados, compress = "xz")
 
 ######## Geracao arquivos do zenodo (csv e parquet) ########
 
+# Carrega os dados processados salvos acima (permite rodar esta parte isoladamente)
+ufrj_data <- readRDS(dados_processados)
+
 
 #### CSV
 
