@@ -4,166 +4,145 @@ library(tidyverse)
 library(arrow)
 source("config.R")
 
-##### Funcao para extrair dados da openalex via api #####
+##### Function to retrieve works from the OpenAlex API #####
 
-extrair_ufrj_por_ano <- function(id_institucional, ano, email_contato) {
+fetch_works_by_year <- function(institution_id, year, email) {
   base_url <- "https://api.openalex.org/works"
-  
-  req_base <- request(base_url) %>%
-    req_headers("User-Agent" = paste0("mailto:", email_contato)) %>%
+
+  base_request <- request(base_url) %>%
+    req_headers("User-Agent" = paste0("mailto:", email)) %>%
     req_url_query(
-      filter = paste0("authorships.institutions.lineage:", id_institucional, 
-                      ",publication_year:", ano),
+      filter = paste0("authorships.institutions.lineage:", institution_id,
+                      ",publication_year:", year),
       select = "id,title,doi,publication_year,cited_by_count,counts_by_year,fwci,countries_distinct_count,institutions_distinct_count,language,locations_count,topics,type,open_access",
       `per-page` = 200
     )
-  
-  # Aqui guardaremos os DATAFRAMES de cada página
-  paginas_df <- list()
-  cursor_atual <- "*"
-  
+
+  # One data frame per results page
+  pages <- list()
+  cursor <- "*"
+
   repeat {
-    message(paste("Coletando ano", ano, "- Cursor:", substr(cursor_atual, 1, 10), "..."))
-    
-    resp <- req_base %>%
-      req_url_query(cursor = cursor_atual) %>%
+    message(paste("Fetching year", year, "- cursor:", substr(cursor, 1, 10), "..."))
+
+    response <- base_request %>%
+      req_url_query(cursor = cursor) %>%
       req_perform()
-    
-    # Pegamos o conteúdo como texto para o jsonlite processar o achatamento (flatten)
-    corpo_texto <- resp %>% resp_body_string()
-    dados_pagina <- fromJSON(corpo_texto, flatten = TRUE)
-    
-    # Se não houver mais resultados, paramos
-    if (length(dados_pagina$results) == 0) break
-    
-    # Guardamos o dataframe desta página na nossa lista
-    paginas_df[[length(paginas_df) + 1]] <- as.data.frame(dados_pagina$results)
-    
-    proximo_cursor <- dados_pagina$meta$next_cursor
-    if (is.null(proximo_cursor) || cursor_atual == proximo_cursor) break
-    
-    cursor_atual <- proximo_cursor
+
+    # Read the body as text so that jsonlite can flatten nested fields
+    body_text <- response %>% resp_body_string()
+    page_data <- fromJSON(body_text, flatten = TRUE)
+
+    # Stop when there are no more results
+    if (length(page_data$results) == 0) break
+
+    pages[[length(pages) + 1]] <- as.data.frame(page_data$results)
+
+    next_cursor <- page_data$meta$next_cursor
+    if (is.null(next_cursor) || cursor == next_cursor) break
+
+    cursor <- next_cursor
   }
-  
-  # Agora sim: rbind_pages em uma lista de dataframes
-  df_final <- jsonlite::rbind_pages(paginas_df)
-  return(as_tibble(df_final))
+
+  as_tibble(jsonlite::rbind_pages(pages))
 }
 
-##### Baixando e salvando os dados #####
- 
-# 1. Definição dos parâmetros de captura importados de config.R no topo do script
+##### Download and save the data, one file per year #####
 
-# Criar a pasta se não existir
-if (!dir.exists(dir_dados_raw)) dir.create(dir_dados_raw, recursive = TRUE)
+if (!dir.exists(raw_dir)) dir.create(raw_dir, recursive = TRUE)
 
-# 2. Loop de execução
-for (ano in anos_para_baixar) {
-  
-  arquivo_nome <- file.path(dir_dados_raw, paste0("openalex_ufrj_", ano, ".rds"))
-  
-  # Verificação opcional: não baixar se o arquivo já existir (útil se a net cair)
-  if (file.exists(arquivo_nome)) {
-    message(paste("Pulando ano", ano, "- Arquivo já existe."))
+for (year in years_to_download) {
+
+  file_name <- file.path(raw_dir, paste0("openalex_ufrj_", year, ".rds"))
+
+  # Skip years already downloaded (useful if the connection drops)
+  if (file.exists(file_name)) {
+    message(paste("Skipping year", year, "- file already exists."))
     next
   }
-  
-  message(paste("--- Iniciando captura da UFRJ - Ano:", ano, "---"))
-  
-  # Tenta baixar os dados
+
+  message(paste("--- Downloading UFRJ works - year:", year, "---"))
+
   tryCatch({
-    dados_ano <- extrair_ufrj_por_ano(id_ufrj, ano, email)
-    
-    # Salva o arquivo .rds (preserva tipos de dados do R)
-    saveRDS(dados_ano, file = arquivo_nome)
-    
-    message(paste("Sucesso! Salvo em:", arquivo_nome))
-    
-    # Pausa breve para ser "polite" com a API, mesmo no Polite Pool
-    Sys.sleep(1) 
-    
+    year_data <- fetch_works_by_year(ufrj_id, year, contact_email)
+
+    # .rds keeps R data types
+    saveRDS(year_data, file = file_name)
+
+    message(paste("Saved to:", file_name))
+
+    # Short pause to be polite to the API
+    Sys.sleep(1)
+
   }, error = function(e) {
-    message(paste("Erro ao baixar o ano", ano, ":", e$message))
+    message(paste("Error downloading year", year, ":", e$message))
   })
 }
 
+##### Merge the yearly files into a single data frame #####
 
+raw_files <- list.files(raw_dir, pattern = "\\.rds$", full.names = TRUE)
 
-##### Fundindo registros em dataframe único #####
-
-# 1. Listar todos os caminhos dos arquivos .rds na pasta raw
-arquivos <- list.files(dir_dados_raw, pattern = "\\.rds$", full.names = TRUE)
-
-# 2. Ler todos e empilhar em um único tibble
-# O map_dfr do purrr (ou bind_rows + lapply) é excelente aqui
-df_ufrj_consolidado <- arquivos %>%
+ufrj_raw <- raw_files %>%
   map(readRDS) %>%
   bind_rows()
 
-# 3. Verificar o resultado
-message(paste("Total de registros consolidados:", nrow(df_ufrj_consolidado)))
-glimpse(df_ufrj_consolidado)
+message(paste("Total records merged:", nrow(ufrj_raw)))
+glimpse(ufrj_raw)
 
+##### Clean the data #####
 
-##### Limpando o dataframe #####
-
-df_ufrj_final <- df_ufrj_consolidado %>%
-  #Extraindo a informacao sobre os dominios
+ufrj_clean <- ufrj_raw %>%
+  # Extract the scientific domains of each work's topics.
+  # The column keeps the name used in the Zenodo deposit (dominios_nomes).
   mutate(
-    # Criamos uma coluna que contém vetores de strings
-    dominios_nomes = map(topics, function(df_interno) {
-      if (is.null(df_interno) || !is.data.frame(df_interno) || nrow(df_interno) == 0) {
-        return(NA_character_) # Retorna NA se não houver dados
+    dominios_nomes = map(topics, function(topic_df) {
+      if (is.null(topic_df) || !is.data.frame(topic_df) || nrow(topic_df) == 0) {
+        return(NA_character_)
       }
-      
-      # Extraímos apenas a coluna do nome do domínio
-      # unique() garante que se 3 tópicos forem "Life Sciences", 
-      # guardaremos o nome apenas uma vez.
-      df_interno %>%
-        pull(domain.display_name) %>% 
+      # unique() keeps each domain only once per work
+      topic_df %>%
+        pull(domain.display_name) %>%
         unique()
-    }) 
+    })
   ) %>%
-  # 1. Renomear as colunas de Open Access # A sintaxe é: novo_nome = nome_antigo
+  # Keep only the OA flag and status
   rename(
     is_oa = open_access.is_oa,
     oa_status = open_access.oa_status
   ) %>%
-  # 2. Remover o que não é mais necessário
   select(
-    -starts_with("open_access."), # Remove todos os outros campos (oa_url, etc)
-    -topics                        # Remove a coluna complexa original
-  )  %>%
-  # 3. Filtrar apenas os 'articles' e 'reviews'
+    -starts_with("open_access."),
+    -topics
+  ) %>%
+  # Keep only articles and reviews
   filter(
-    type %in% c('article', 'review')
+    type %in% c("article", "review")
   )
 
-saveRDS(df_ufrj_final, file = dados_processados, compress = "xz")
+saveRDS(ufrj_clean, file = processed_data, compress = "xz")
 
-ufrj_data <- readRDS(dados_processados)
+ufrj_data <- readRDS(processed_data)
 
-######## Geracao arquivos do zenodo (csv e parquet) ########
-
+######## Files deposited on Zenodo (CSV and Parquet) ########
 
 #### CSV
 
-# Versão "segura" da função toJSON que retorna NA se falhar
+# Safe version of toJSON that returns NA on failure
 safe_json <- possibly(function(x) {
   if (is.null(x) || (is.logical(x) && all(is.na(x))) || !is.data.frame(x) || nrow(x) == 0) {
     return(NA_character_)
   }
-  return(as.character(toJSON(x)))
+  as.character(toJSON(x))
 }, otherwise = NA_character_)
 
-ufrj_csv_completo <- ufrj_data %>%
+ufrj_csv <- ufrj_data %>%
   mutate(
-    # Agora usamos a função segura para o histórico
+    # Yearly citation history serialized as JSON
     counts_by_year = map_chr(counts_by_year, safe_json),
-    
-    # Tratamento para domínios (simplificado e seguro)
+
+    # Domains as a "; "-delimited string
     dominios_nomes = map_chr(dominios_nomes, ~ {
-      # Verificamos se é uma lista válida de strings
       val <- unlist(.x)
       if (is.null(val) || all(is.na(val)) || length(val) == 0) {
         return(NA_character_)
@@ -172,31 +151,25 @@ ufrj_csv_completo <- ufrj_data %>%
     })
   )
 
-# 2. Exportação
-
-write.table(ufrj_csv_completo, dados_processados_csv, 
-            sep = ";", 
-            dec = ",", 
-            row.names = FALSE, 
+write.table(ufrj_csv, zenodo_csv,
+            sep = ";",
+            dec = ",",
+            row.names = FALSE,
             quote = TRUE,
             qmethod = "double",
             fileEncoding = "UTF-8")
 
+#### Parquet
 
-#### PARQUET
-
-# 1. Normalizando a estrutura para o Arrow
-ufrj_data_parquet <- ufrj_data %>%
+# Give counts_by_year a consistent structure for Arrow
+ufrj_parquet <- ufrj_data %>%
   mutate(
     counts_by_year = map(counts_by_year, ~ {
-      # Se for nulo ou não for um data.frame, cria um df vazio com as colunas corretas
       if (is.null(.x) || !is.data.frame(.x) || nrow(.x) == 0) {
         return(data.frame(year = integer(), cited_by_count = integer()))
       }
-      # Garante que as colunas sejam exatamente o que o Arrow espera
       as.data.frame(.x) %>% select(year, cited_by_count)
     })
   )
 
-# 2. Agora o write_parquet deve funcionar perfeitamente
-write_parquet(ufrj_data_parquet, dados_processados_parquet)
+write_parquet(ufrj_parquet, zenodo_parquet)
