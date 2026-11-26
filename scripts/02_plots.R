@@ -114,7 +114,7 @@ df_p2 <- ufrj_data %>%
 p1_distribuicao <- ggplot(df_p2, 
                           aes(x = publication_year, # Usamos o ano numérico aqui
                               y = fwci, 
-                              fill = status_label, 
+                              fill = status_label,
                               color = status_label,
                               group = interaction(publication_year, status_label))) + # Agrupa por ano E status
   
@@ -147,7 +147,7 @@ p1_distribuicao <- ggplot(df_p2,
                angle = 90,
                vjust = 0.5,
                hjust = -0.2, 
-               size = 3, 
+               size = 6, 
                color = "white",
                fill = "red",
                fontface = "bold",
@@ -168,13 +168,15 @@ p1_distribuicao <- ggplot(df_p2,
   coord_cartesian(ylim = c(0.1, 100)) +
   
   labs(title = "A)",
-       y = "FWCI (Log)", x = NULL) +
+       y = "FWCI (Log)", x = "Ano de publicação",
+       fill = "Status",
+       color = "Status") +
   
   theme_minimal(base_size = 16) + 
-  theme(legend.position = "none", 
-        axis.text.x = element_blank(),
-        panel.grid.minor = element_blank(),
-        plot.title = element_text(size = 20, face = "bold"))
+  theme(plot.title = element_text(size = 20, face = "bold"),
+        legend.position = "bottom")
+
+p1_distribuicao
 
 # --- 3. P2: COMPOSIÇÃO DOS ARTIGOS MAIS CITADOS (QUARTIL 1) ---
 teto_maximo <- df_elite_base %>% 
@@ -188,7 +190,7 @@ p2_elite <- ggplot(df_elite_ext, aes(x = publication_year, y = n, fill = status_
   geom_text(data = df_elite_base, 
             aes(label = paste0(round(perc_no_topo, 0), "%")),
             position = position_stack(vjust = 0.5), 
-            size = 3.2, color = "white", fontface = "bold") +
+            size = 8, color = "white", fontface = "bold") +
   # ylim(0, max) garante que o gráfico comece no zero e ignore a linha lá embaixo
   coord_cartesian(ylim = c(0, teto_maximo * 1.1)) +
   scale_x_continuous(breaks = seq(ano_min, ano_max, by = 2),
@@ -545,6 +547,16 @@ df_investigacao %>%
 
 ### Analisando documentos com zero citacoes ######
 
+analise_fwci_plot <- ufrj_data %>%
+  filter(!is.na(fwci), !is.na(is_oa)) %>%
+  mutate(is_oa = if_else(is_oa, "Acesso Aberto", "Fechado")) %>%
+  group_by(publication_year, is_oa) %>%
+  summarise(
+    total_docs     = n(),
+    docs_zero_fwci = sum(fwci == 0),
+    perc_zero_fwci = docs_zero_fwci / total_docs,  # proporção de 0 a 1
+    .groups = "drop"
+  )
 
 # Usando o seu dataframe analise_fwci_plot
 plot_perc_rotulado <- ggplot(analise_fwci_plot, 
