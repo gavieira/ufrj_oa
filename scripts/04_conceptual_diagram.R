@@ -15,8 +15,8 @@ boxes <- tribble(
   ~id,        ~x,  ~y,   ~width, ~height, ~colour, ~linetype,
   "oa",       1.5, 3.5,  2.7,    1.35,    blue,    "solid",
   "fwci",     8.5, 3.5,  2.7,    1.35,    blue,    "solid",
-  "measured", 5.0, 6.0,  6.6,    1.25,    dark,    "solid",
-  "unmeas",   5.0, 1.0,  6.6,    1.25,    grey,    "dashed"
+  "measured", 5.0, 6.0,  7.6,    1.25,    dark,    "solid",
+  "unmeas",   5.0, 1.0,  7.6,    1.25,    grey,    "dashed"
 )
 
 # Box titles (bold) and role labels (italic, grey)
@@ -24,7 +24,7 @@ titles <- tribble(
   ~x,  ~y,   ~text,
   1.5, 3.8,  "Open access route",
   8.5, 3.8,  "Citation impact\n(FWCI)",
-  5.0, 6.22, "Language; collaboration; document type",
+  5.0, 6.22, "Language; collaboration; document type; domain; year",
   5.0, 1.22, "Journal circuit (national/international);\npaper quality / author choice"
 )
 
